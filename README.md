@@ -40,19 +40,19 @@ poetry add MacWinUA
 ```python
 from macwinua import ua
 
-# Get any Chrome User-Agent string
-chrome_ua = ua.chrome
+# Get any Chrome User-Agent string (random)
+ua_string = ua.chrome
 
-# Get a macOS Chrome User-Agent
+# Get a macOS Chrome UA
 mac_ua = ua.mac
 
-# Get a Windows Chrome User-Agent
+# Get a Windows Chrome UA
 win_ua = ua.windows
 
-# Get the latest version Chrome User-Agent
+# Get the latest available version's UA
 latest_ua = ua.latest
 
-# Get a random Chrome User-Agent (alias for chrome)
+# Alias for random Chrome UA
 random_ua = ua.random
 ```
 
@@ -61,20 +61,23 @@ random_ua = ua.random
 ```python
 from macwinua import ua
 
-# Get random Chrome headers
+# Basic Chrome headers
 headers = ua.get_headers()
 
-# Get macOS Chrome headers
+# macOS Chrome headers
 mac_headers = ua.get_headers(platform="mac")
 
-# Get Windows Chrome headers
+# Windows Chrome headers
 win_headers = ua.get_headers(platform="win")
 
-# Get specific Chrome version headers
-chrome137_headers = ua.get_headers(chrome_version="137")
+# Specific Chrome version
+ver_headers = ua.get_headers(chrome_version="137")
 
-# Specify both platform and version
-mac_chrome136 = ua.get_headers(platform="mac", chrome_version="136")
+# Specific platform + version
+combo_headers = ua.get_headers(platform="mac", chrome_version="136")
+
+# Add custom headers (merged)
+custom_headers = ua.get_headers(extra_headers={"X-API-KEY": "mykey"})
 
 # Use with requests
 import requests
@@ -88,10 +91,7 @@ For even more concise code:
 ```python
 from macwinua import get_chrome_headers
 
-# Get random headers
-headers = get_chrome_headers()
-
-# Get macOS headers
+headers = get_chrome_headers()  # random
 mac_headers = get_chrome_headers(platform="mac")
 ```
 
@@ -100,11 +100,20 @@ mac_headers = get_chrome_headers(platform="mac")
 ```python
 from macwinua import ChromeUA
 
-# Create your own instance
+# Create a new instance
 my_ua = ChromeUA()
 
-# Update with new User-Agents (for future auto-update functionality)
-my_ua.update(agents=[...new_agents_list...], sec_ua={...new_sec_ch_ua_values...})
+# Update internal data manually
+my_ua.update(
+    agents=[
+        ("mac", "Mac OS X 15_0", "138", "Mozilla/5.0 (...)"),
+        ...
+    ],
+    sec_ua={
+        "138": '"Google Chrome";v="138", "Chromium";v="138", "Not.A/Brand";v="99"',
+        ...
+    },
+)
 ```
 
 ---
@@ -155,7 +164,7 @@ poetry install
 poetry shell
 
 # Run tests
-pytest
+pytest  # or pytest --cov=macwinua --cov-report=html
 
 # Install pre-commit hooks
 pre-commit install
@@ -169,8 +178,7 @@ This project uses pre-commit to ensure code quality. The following checks run au
 2. Mypy type checking
 3. Pytest tests
 
-> [!WARNING]
-> **_These are the same checks that run in our CI pipeline, ensuring consistency between local development and automated testing environments._**
+> [!WARNING] > **_These are the same checks that run in our CI pipeline, ensuring consistency between local development and automated testing environments._**
 
 ## Comparison with other libraries
 
