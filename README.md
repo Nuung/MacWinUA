@@ -178,7 +178,8 @@ This project uses pre-commit to ensure code quality. The following checks run au
 2. Mypy type checking
 3. Pytest tests
 
-> [!WARNING] > **_These are the same checks that run in our CI pipeline, ensuring consistency between local development and automated testing environments._**
+> [!WARNING]
+> **_These are the same checks that run in our CI pipeline, ensuring consistency between local development and automated testing environments._**
 
 ## Comparison with other libraries
 
