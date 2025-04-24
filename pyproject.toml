@@ -1,0 +1,44 @@
+[tool.poetry]
+name = "macwinua"
+version = "0.1.0"
+description = "A library for generating realistic browser headers for macOS and Windows platforms — always the freshest Chrome headers."
+authors = ["Nuung <qlgks1@naver.com>"]
+readme = "README.md"
+repository = "https://github.com/Nuung/MacWinUA.git"
+license = "MIT"
+packages = [{ include = "macwinua" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+ruff = "^0.1.6"
+mypy = "^1.5.0"
+
+[tool.ruff]
+# Enable Pyflakes ('F'), pycodestyle ('E'), isort ('I'), and Black-compatible auto-formatting
+line-length = 88
+target-version = "py310"
+select = ["E", "F", "I", "W", "B"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
