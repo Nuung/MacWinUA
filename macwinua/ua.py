@@ -126,9 +126,7 @@ class ChromeUA:
         return self.chrome
 
     @memoize
-    def get_headers(
-        self, platform: Optional[str] = None, chrome_version: Optional[str] = None
-    ) -> Dict[str, str]:
+    def get_headers(self, platform: Optional[str] = None, chrome_version: Optional[str] = None) -> Dict[str, str]:
         """
         Get complete Chrome browser headers.
 
@@ -152,9 +150,7 @@ class ChromeUA:
 
         if chrome_version:
             if chrome_version not in self._sec_ua:
-                raise ValueError(
-                    f"Chrome version must be one of: {', '.join(self._sec_ua.keys())}"
-                )
+                raise ValueError(f"Chrome version must be one of: {', '.join(self._sec_ua.keys())}")
             candidates = [a for a in candidates if a[2] == chrome_version]
 
         if not candidates:
@@ -173,8 +169,8 @@ class ChromeUA:
 
     def update(
         self,
-        agents: List[Tuple[str, str, str, str]] = None,
-        sec_ua: Dict[str, str] = None,
+        agents: Optional[List[Tuple[str, str, str, str]]] = None,
+        sec_ua: Optional[Dict[str, str]] = None,
     ) -> None:
         """
         Update the user-agents and sec-ua values (for future automatic updates).
@@ -198,9 +194,7 @@ ua = ChromeUA()
 
 
 # For backward compatibility and simple usage
-def get_chrome_headers(
-    platform: Optional[str] = None, chrome_version: Optional[str] = None
-) -> Dict[str, str]:
+def get_chrome_headers(platform: Optional[str] = None, chrome_version: Optional[str] = None) -> Dict[str, str]:
     """
     Generate Chrome browser headers for web requests.
 

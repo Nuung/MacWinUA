@@ -28,7 +28,7 @@ mypy = "^1.5.0"
 
 [tool.ruff]
 # Enable Pyflakes ('F'), pycodestyle ('E'), isort ('I'), and Black-compatible auto-formatting
-line-length = 88
+line-length = 130
 target-version = "py310"
 select = ["E", "F", "I", "W", "B"]
 ignore = []
