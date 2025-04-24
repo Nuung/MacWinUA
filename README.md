@@ -1,13 +1,3 @@
-pyenv install 3.13
-pyenv local 3.13
-poetry env use $(pyenv which python)
-
-- poetry env info
-- poetry env remove python
-  poetry shell
-
-poetry run ruff check --fix macwinua/ tests/
-
 poetry build
 
 - PyPI 토큰 구성 (처음 한번만)
@@ -15,11 +5,6 @@ poetry build
 
 - 배포
   poetry publish
-
-- 검사와 포맷팅을 순차적으로 실행
-  poetry run ruff check --fix macwinua/ tests/ && poetry run ruff format macwinua/ tests/
-
-poetry run mypy macwinua/
 
 ---
 
@@ -33,7 +18,7 @@ poetry run mypy macwinua/
 
 ## 🔄 Why MacWinUA?
 
-1. **Always fresh**: ***Focus on providing the most up-to-date Chrome headers*!**
+1. **Always fresh**: **_Focus on providing the most up-to-date Chrome headers_!**
 2. **Platform specific**: Tailored for macOS and Windows environments
 3. **Simple API**: Easy-to-use, property-based interface
 4. **Lightweight**: No external dependencies
@@ -178,7 +163,20 @@ poetry shell
 
 # Run tests
 pytest
+
+# Install pre-commit hooks
+pre-commit install
 ```
+
+#### Pre-commit hooks
+
+This project uses pre-commit to ensure code quality. The following checks run automatically before each commit:
+
+1. Ruff linting and formatting
+2. Mypy type checking
+3. Pytest tests
+
+**_These are the same checks that run in our CI pipeline, ensuring consistency between local development and automated testing environments._**
 
 ## Comparison with other libraries
 

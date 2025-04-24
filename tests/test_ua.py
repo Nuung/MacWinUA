@@ -93,23 +93,15 @@ def test_memoization():
     # They should be identical since random.choice would be memoized
     assert result1 == result2
 
-    # Create a new instance (which won't have cache)
+    # Create a completely new instance with a modified set of agents
+    custom_agents = [
+        # Create a unique agent that only this instance will have
+        ("mac", "Mac OS X Custom", "136", "Mozilla/5.0 (Macintosh; Custom Mac) Test/136")
+    ]
+
     new_ua = ChromeUA()
+    new_ua.update(agents=custom_agents)
+
+    # Now the result must be different since we're using different data
     result3 = new_ua.get_headers(platform="mac", chrome_version="136")
-
-    # The result might be different since it's a fresh random choice
-    # Let's try multiple times to make sure this is a reliable test
-    different_results_found = False
-
-    # Try up to 10 times to account for the small probability
-    # that we might randomly select the same UA string
-    for _ in range(10):
-        new_ua.clear_cache() if hasattr(new_ua, "clear_cache") else None
-        result3 = new_ua.get_headers(platform="mac", chrome_version="136")
-        if result1 != result3:
-            different_results_found = True
-            break
-
-    # Assert that we found at least one different result,
-    # which confirms that the new instance isn't using the same cache
-    assert different_results_found, "New instance should produce different results (not using cached value)"
+    assert result1 != result3, "New instance with custom agents should produce different results"
