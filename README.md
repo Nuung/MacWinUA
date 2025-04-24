@@ -1,14 +1,13 @@
 # MacWinUA
 
-> [!NOTE] A library for generating realistic browser headers for macOS and Windows platforms — always the freshest Chrome headers.
+> [!NOTE]
+> A library for generating realistic browser headers for macOS and Windows platforms — always the freshest Chrome headers.
 
 [![PyPI version](https://badge.fury.io/py/MacWinUA.svg)](https://badge.fury.io/py/MacWinUA)
 [![Python Versions](https://img.shields.io/pypi/pyversions/MacWinUA.svg)](https://pypi.org/project/MacWinUA/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Coverage](https://img.shields.io/badge/test%20coverage-100%25-brightgreen.svg)](https://github.com/Nuung/MacWinUA)
 [![CI Status](https://github.com/Nuung/MacWinUA/actions/workflows/ci.yaml/badge.svg)](https://github.com/Nuung/MacWinUA/actions/workflows/ci.yaml)
-[![Publish Status](https://github.com/Nuung/MacWinUA/actions/workflows/publish.yaml/badge.svg)](https://github.com/Nuung/MacWinUA/actions/workflows/publish.yaml)
-
 
 ## 🔄 Why MacWinUA?
 
@@ -170,7 +169,8 @@ This project uses pre-commit to ensure code quality. The following checks run au
 2. Mypy type checking
 3. Pytest tests
 
-> [!WARNING] **_These are the same checks that run in our CI pipeline, ensuring consistency between local development and automated testing environments._**
+> [!WARNING]
+> **_These are the same checks that run in our CI pipeline, ensuring consistency between local development and automated testing environments._**
 
 ## Comparison with other libraries
 
