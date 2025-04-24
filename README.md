@@ -1,13 +1,3 @@
-poetry build
-
-- PyPI 토큰 구성 (처음 한번만)
-  poetry config pypi-token.pypi your-token-here
-
-- 배포
-  poetry publish
-
----
-
 # MacWinUA
 
 > A library for generating realistic browser headers for macOS and Windows platforms — always the freshest Chrome headers.
@@ -182,11 +172,7 @@ This project uses pre-commit to ensure code quality. The following checks run au
 
 Unlike `fake-useragent` which tries to cover all browsers and platforms, MacWinUA focuses specifically on:
 
-1. Chrome browser only
-2. macOS and Windows platforms
-3. Always up-to-date headers (including sec-ch-ua values)
-4. Realistic header combinations
-
-## License
-
-MIT
+1. Always up-to-date headers (including sec-ch-ua values)
+2. Realistic header combinations, enabling perfect browser impersonation with authentic UA strings!
+3. Chrome browser only and macOS and Windows platforms
+4. More Simple, More Fast, More Easy to Custom, No external dependencies
