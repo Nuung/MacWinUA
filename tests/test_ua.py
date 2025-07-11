@@ -175,7 +175,7 @@ def test_memoization():
         agents=custom_agents,
         sec_ua={
             "136": '"Test Chrome";v="136"',
-            DEFAULT_CHROME_VERSION: '"Default Chrome";v="135"',
+            DEFAULT_CHROME_VERSION: '"Default Chrome";v="138"',
         },
     )
 
@@ -331,7 +331,7 @@ def test_memoize_decorator():
 
 def test_all_available_versions():
     """Test all available Chrome versions."""
-    for version in ["135", "136", "137"]:
+    for version in ["136", "137", "138"]:
         headers = ua.get_headers(chrome_version=version)
         assert version in headers["sec-ch-ua"]
 
@@ -465,9 +465,9 @@ def test_available_versions():
     assert versions == sorted(versions)
 
     # Should match our expected Chrome versions
-    assert "135" in versions
     assert "136" in versions
     assert "137" in versions
+    assert "138" in versions
 
     # Update with custom agents and check again
     test_ua.update(

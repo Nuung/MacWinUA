@@ -6,77 +6,15 @@ MacWinUA: A library for generating realistic browser headers for macOS and Windo
 import functools
 import random
 import threading
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
-# Store the latest Chrome user agents for macOS and Windows
-# (platform_label, os_version, chrome_version, ua_string)
-CHROME_AGENTS: List[Tuple[str, str, str, str]] = [
-    # macOS
-    (
-        "mac",
-        "Mac OS X 13_5_2",
-        "137",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-    ),
-    (
-        "mac",
-        "Mac OS X 14_0",
-        "137",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.2.0 Safari/537.36",
-    ),
-    (
-        "mac",
-        "Mac OS X 13_4_1",
-        "136",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_4_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.2.0 Safari/537.36",
-    ),
-    (
-        "mac",
-        "Mac OS X 12_6_3",
-        "135",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_6_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.1.0 Safari/537.36",
-    ),
-    # Windows
-    (
-        "win",
-        "Windows NT 10.0; Win64; x64",
-        "137",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-    ),
-    (
-        "win",
-        "Windows NT 10.0; Win64; x64",
-        "136",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.2.0 Safari/537.36",
-    ),
-    (
-        "win",
-        "Windows NT 10.0; Win64; x64",
-        "135",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
-    ),
-]
-
-# Chrome's sec-ch-ua header values
-CHROME_SEC_UA: Dict[str, str] = {
-    "137": '"Google Chrome";v="137", "Chromium";v="137", "Not.A/Brand";v="99"',
-    "136": '"Google Chrome";v="136", "Chromium";v="136", "Not.A/Brand";v="99"',
-    "135": '"Google Chrome";v="135", "Chromium";v="135", "Not.A/Brand";v="99"',
-}
-
-# Default headers included with every request
-DEFAULT_HEADERS: Dict[str, str] = {
-    "sec-ch-ua-mobile": "?0",
-    "Upgrade-Insecure-Requests": "1",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",  # noqa: E501
-    "Accept-Language": "en-US,en;q=0.9",
-}
-
-# Default fallback Chrome version if preferred version is not available
-DEFAULT_CHROME_VERSION = "135"
-
-# Valid platform types
-PlatformType = Literal["mac", "win"]
+from .contants import (
+    PlatformType,
+    DEFAULT_CHROME_AGENTS,
+    DEFAULT_CHROME_SEC_UA,
+    DEFAULT_HEADERS,
+    DEFAULT_CHROME_VERSION,
+)
 
 
 def memoize(func):
@@ -118,8 +56,8 @@ class ChromeUA:
 
     def __init__(self):
         """Initialize with default agents."""
-        self._agents = CHROME_AGENTS.copy()
-        self._sec_ua = CHROME_SEC_UA.copy()
+        self._agents = DEFAULT_CHROME_AGENTS.copy()
+        self._sec_ua = DEFAULT_CHROME_SEC_UA.copy()
         self._lock = threading.RLock()  # For thread-safe operations
 
         # Validate initial data
