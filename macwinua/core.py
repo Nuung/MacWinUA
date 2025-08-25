@@ -80,12 +80,14 @@ class CacheManager:
             raise DataValidationError("Cannot save empty versions list to cache")
         with self._lock:
             try:
-                # Ensure parent directory exists
+                # Ensure parent directory exists, handling potential race conditions atomically.
                 self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+
                 cache_data = {"versions": versions, "timestamp": time.time()}
                 with self.cache_path.open("w", encoding="utf-8") as f:
                     json.dump(cache_data, f, indent=2)
             except (IOError, OSError) as e:
+                # This catches errors from both mkdir and open/write.
                 raise CacheError(f"Failed to save cache: {e}") from e
 
 
@@ -107,7 +109,8 @@ class ApiVersionFetcher:
         api_url = API_URL_TEMPLATE.format(platform="win")
         try:
             req = request.Request(api_url)
-            req.add_header("User-Agent", "MacWinUA/2.0")
+            # Use a more descriptive User-Agent for API requests
+            req.add_header("User-Agent", "MacWinUA/1.0.0 (https://github.com/Nuung/MacWinUA)")
 
             with request.urlopen(req, timeout=API_TIMEOUT_SECONDS) as response:
                 if response.status != 200:
@@ -202,8 +205,9 @@ class UADataBuilder:
 
 class DataManager:
     """
-    High-level data management. No longer a singleton.
-    Responsibility: Coordinating all data operations and providing unified interface
+    High-level data management.
+    Responsibility: Coordinating all data operations and providing unified interface.
+    This class is instantiated by HeaderGenerator.
     """
 
     _lock = threading.Lock()
@@ -230,6 +234,7 @@ class DataManager:
         This method is idempotent unless force_refresh is True.
         """
         with self._lock:
+            # Short-circuit if data is already loaded and not forcing a refresh
             if self._is_loaded and not force_refresh:
                 return
 
@@ -239,13 +244,13 @@ class DataManager:
             self._is_loaded = True
 
     def get_agents(self) -> List[AgentTuple]:
-        """Get all agent tuples."""
-        self.load_data()  # Ensure data is loaded
+        """Get all agent tuples. Data is lazy-loaded on first call."""
+        self.load_data()
         return self._agents.copy()
 
     def get_sec_ua_map(self) -> SecUAMapping:
-        """Get sec-ch-ua mapping."""
-        self.load_data()  # Ensure data is loaded
+        """Get sec-ch-ua mapping. Data is lazy-loaded on first call."""
+        self.load_data()
         return self._sec_ua_map.copy()
 
     def force_update(self) -> None:

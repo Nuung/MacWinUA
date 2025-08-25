@@ -88,3 +88,25 @@ class TestHeaderGenerator:
     def test_force_update_calls_data_manager(self, header_generator, mock_data_manager):
         header_generator.force_update()
         mock_data_manager.force_update.assert_called_once()
+
+    # --- Edge Case Tests for Empty Data ---
+
+    def test_chrome_property_raises_error_on_no_agents(self, header_generator, mock_data_manager):
+        """Test that the chrome property raises UAError if no agents are available."""
+        mock_data_manager.get_agents.return_value = []
+        with pytest.raises(UAError, match="No user agents available"):
+            _ = header_generator.chrome
+
+    def test_mac_property_raises_error_on_no_matching_agents(self, header_generator, mock_data_manager):
+        """Test that the mac property raises UAError if no matching agents are found."""
+        # Simulate only Windows agents being available
+        mock_data_manager.get_agents.return_value = [("win", "NT10", "139", "...")]
+        with pytest.raises(UAError, match="No matching user-agent found"):
+            _ = header_generator.mac
+
+    def test_get_headers_raises_error_on_no_matching_agents(self, header_generator, mock_data_manager):
+        """Test get_headers raises UAError if no agents match the criteria."""
+        # Simulate data only for version "138"
+        mock_data_manager.get_agents.return_value = [("mac", "OSX", "138", "...")]
+        with pytest.raises(UAError, match="No matching user-agent found"):
+            header_generator.get_headers(chrome_version="139")

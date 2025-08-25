@@ -105,6 +105,13 @@ class TestCacheManager:
         with pytest.raises(CacheError, match="Failed to save cache"):
             cache_manager.save(["139"])
 
+    @patch("pathlib.Path.mkdir")
+    def test_save_raises_cache_error_on_mkdir_error(self, mock_mkdir, cache_manager: CacheManager):
+        """Test that a CacheError is raised if the cache directory cannot be created."""
+        mock_mkdir.side_effect = OSError("Permission denied")
+        with pytest.raises(CacheError, match="Failed to save cache"):
+            cache_manager.save(["139"])
+
 
 # --- ApiVersionFetcher Tests ---
 class TestApiVersionFetcher:
