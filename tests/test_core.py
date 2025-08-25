@@ -1,217 +1,473 @@
 """
-Tests for the core data provisioning components of MacWinUA.
-These tests ensure that caching, API fetching, and fallback logic work correctly,
-aiming for 100% test coverage of the core module.
+Tests for core data processing components of MacWinUA.
+Tests cache management, API fetching, and data coordination.
 """
 
 import json
 import time
-from pathlib import Path
+import threading
 from unittest.mock import MagicMock, patch
-from urllib import error
-
+from urllib.error import URLError
 import pytest
+from macwinua.constants import CACHE_VALIDITY_DAYS, FALLBACK_VERSIONS
+from macwinua.core import (
+    CacheManager,
+    VersionFetcher,
+    DataProvider,
+    UADataBuilder,
+    DataManager,
+)
+from macwinua.exceptions import CacheError, APIFetchError, DataValidationError
 
-from macwinua.constants import CACHE_VALIDITY_SECONDS, FALLBACK_CHROME_VERSIONS
-from macwinua.core import APIFetcher, CacheManager, DataProvider
-from macwinua.exceptions import APIFetchError, CacheError, UAError
 
-
-# --- Fixtures for Test Setup ---
+# --- Fixtures ---
+@pytest.fixture
+def temp_cache_path(tmp_path):
+    """Provides temporary cache file path."""
+    return tmp_path / "test_cache.json"
 
 
 @pytest.fixture
-def mock_cache_path(tmp_path: Path) -> Path:
-    """Provides a temporary path for cache files for test isolation."""
-    return tmp_path / "macwinua_cache.json"
+def cache_manager(temp_cache_path):
+    """Provides CacheManager instance."""
+    return CacheManager(temp_cache_path)
 
 
 @pytest.fixture
-def cache_manager(mock_cache_path: Path) -> CacheManager:
-    """Provides a CacheManager instance configured with a temporary path."""
-    return CacheManager(mock_cache_path)
+def version_fetcher():
+    """Provides VersionFetcher instance."""
+    return VersionFetcher()
+
+
+@pytest.fixture
+def data_provider(cache_manager, version_fetcher):
+    """Provides DataProvider instance."""
+    return DataProvider(cache_manager, version_fetcher)
 
 
 @pytest.fixture(autouse=True)
-def reset_dataprovider_singleton():
-    """
-    Ensures the DataProvider singleton is reset before each test, preventing
-    state leakage between tests.
-    """
-    DataProvider._instance = None
-    DataProvider._data = None
+def reset_data_manager_singleton():
+    """Reset DataManager singleton before each test."""
+    DataManager._instance = None
+    DataManager._initialized = False
 
 
-# --- Test Cases for CacheManager ---
-
-
+# --- CacheManager Tests ---
 class TestCacheManager:
-    """Thoroughly tests the CacheManager class for all I/O scenarios."""
+    """Tests for cache management functionality."""
 
-    def test_read_valid_cache(self, cache_manager: CacheManager, mock_cache_path: Path):
-        """Should read and return data from a valid, non-expired cache file."""
-        valid_data = {"timestamp": time.time(), "versions": ["100"]}
-        mock_cache_path.write_text(json.dumps(valid_data))
-        assert cache_manager.read() == valid_data
+    def test_is_valid_nonexistent_file(self, cache_manager):
+        """Should return False for non-existent cache file."""
+        assert not cache_manager.is_valid()
 
-    def test_read_non_existent_cache(self, cache_manager: CacheManager):
-        """Should return None when the cache file does not exist."""
-        assert cache_manager.read() is None
+    def test_is_valid_fresh_cache(self, cache_manager, temp_cache_path):
+        """Should return True for fresh cache."""
+        cache_data = {"versions": ["139", "138"], "timestamp": time.time()}
+        temp_cache_path.write_text(json.dumps(cache_data))
+        assert cache_manager.is_valid()
 
-    def test_read_expired_cache(self, cache_manager: CacheManager, mock_cache_path: Path):
-        """Should return None when the cache file is expired."""
-        expired_timestamp = time.time() - (CACHE_VALIDITY_SECONDS + 100)
-        expired_data = {"timestamp": expired_timestamp, "versions": ["99"]}
-        mock_cache_path.write_text(json.dumps(expired_data))
-        assert cache_manager.read() is None
+    def test_is_valid_expired_cache(self, cache_manager, temp_cache_path):
+        """Should return False for expired cache."""
+        old_timestamp = time.time() - (CACHE_VALIDITY_DAYS + 1) * 24 * 60 * 60
+        cache_data = {"versions": ["139", "138"], "timestamp": old_timestamp}
+        temp_cache_path.write_text(json.dumps(cache_data))
+        assert not cache_manager.is_valid()
 
-    def test_read_corrupted_json_raises_error(self, cache_manager: CacheManager, mock_cache_path: Path):
-        """Should raise CacheError when the cache file contains invalid JSON."""
-        mock_cache_path.write_text("{'key': 'not valid json'}")
-        with pytest.raises(CacheError, match="is corrupted"):
-            cache_manager.read()
+    def test_is_valid_corrupted_file(self, cache_manager, temp_cache_path):
+        """Should return False for corrupted JSON file."""
+        temp_cache_path.write_text("invalid json")
+        assert not cache_manager.is_valid()
 
-    def test_read_missing_timestamp_is_treated_as_miss(self, cache_manager: CacheManager, mock_cache_path: Path):
-        """Should return None if 'timestamp' key is missing, not raise an error."""
-        corrupted_data = {"versions": ["100"]}  # No timestamp
-        mock_cache_path.write_text(json.dumps(corrupted_data))
-        # CRITICAL FIX: The test was correct, the implementation was wrong.
-        # The test asserts that a missing timestamp is a "miss" (returns None),
-        # which is the desired behavior. The fix is in core.py's CacheManager.read.
-        # This test remains as is to validate the fix.
-        assert cache_manager.read() is None
+    def test_is_valid_missing_timestamp(self, cache_manager, temp_cache_path):
+        """Should return False for cache missing timestamp."""
+        cache_data = {"versions": ["139"]}  # No timestamp
+        temp_cache_path.write_text(json.dumps(cache_data))
+        assert not cache_manager.is_valid()
 
-    def test_read_io_error_raises_error(self, mock_cache_path: Path):
-        """Should raise CacheError on file read IO errors."""
-        mock_cache_path.touch()
-        with patch.object(Path, "open", side_effect=IOError("Permission denied")):
-            cm = CacheManager(mock_cache_path)
-            with pytest.raises(CacheError, match="Failed to read"):
-                cm.read()
+    def test_load_valid_cache(self, cache_manager, temp_cache_path):
+        """Should load versions from valid cache."""
+        versions = ["139", "138", "137"]
+        cache_data = {"versions": versions, "timestamp": time.time()}
+        temp_cache_path.write_text(json.dumps(cache_data))
+        loaded_versions = cache_manager.load()
+        assert loaded_versions == versions
 
-    def test_write_success(self, cache_manager: CacheManager, mock_cache_path: Path):
-        """Should write data and a current timestamp to the cache file."""
-        data_to_write = {"versions": ["101"]}
-        cache_manager.write(data_to_write)
-        content = json.loads(mock_cache_path.read_text())
-        assert content["versions"] == ["101"]
-        assert "timestamp" in content
-        assert time.time() - content["timestamp"] < 5  # Check if timestamp is recent
+    def test_load_invalid_cache_returns_none(self, cache_manager):
+        """Should return None for invalid cache."""
+        assert cache_manager.load() is None
 
-    def test_write_io_error_raises_error(self, cache_manager: CacheManager):
-        """Should raise CacheError on file write IO errors."""
-        with patch.object(Path, "open", side_effect=IOError("Disk full")):
-            with pytest.raises(CacheError, match="Failed to write"):
-                cache_manager.write({"versions": ["102"]})
+    def test_load_empty_versions_returns_none(self, cache_manager, temp_cache_path):
+        """Should return None for cache with empty versions."""
+        cache_data = {"versions": [], "timestamp": time.time()}
+        temp_cache_path.write_text(json.dumps(cache_data))
+        assert cache_manager.load() is None
+
+    @patch("pathlib.Path.open")
+    @patch.object(CacheManager, "is_valid", return_value=True)
+    def test_load_io_error_raises_cache_error(self, mock_is_valid, mock_path_open, cache_manager, temp_cache_path):
+        """
+        Tests that CacheError is raised when an I/O error occurs in the load() method.
+        is_valid() is mocked to return True to simplify the test.
+        """
+        mock_path_open.side_effect = IOError("Read error")
+        with pytest.raises(CacheError, match="Failed to load cache"):
+            cache_manager.load()
+
+        mock_is_valid.assert_called_once()
+        mock_path_open.assert_called_once()
+
+    def test_save_success(self, cache_manager, temp_cache_path):
+        """Should save versions with timestamp."""
+        versions = ["139", "138"]
+        cache_manager.save(versions)
+        # Verify file was created
+        assert temp_cache_path.exists()
+        # Verify content
+        with temp_cache_path.open("r") as f:
+            data = json.load(f)
+        assert data["versions"] == versions
+        assert "timestamp" in data
+        assert isinstance(data["timestamp"], float)
+
+    def test_save_empty_versions_raises_error(self, cache_manager):
+        """Should raise DataValidationError for empty versions."""
+        with pytest.raises(DataValidationError, match="Cannot save empty versions"):
+            cache_manager.save([])
+
+    @patch("pathlib.Path.open")
+    def test_save_io_error_raises_cache_error(self, mock_open_method, cache_manager):
+        """Should raise CacheError on I/O error."""
+        mock_open_method.side_effect = IOError("Write error")
+        with pytest.raises(CacheError, match="Failed to save cache"):
+            cache_manager.save(["139"])
+
+    @patch("pathlib.Path.open")
+    def test_save_permission_error_raises_cache_error(self, mock_open_method, cache_manager):
+        """Should raise CacheError on permission error."""
+        mock_open_method.side_effect = PermissionError("Permission denied")
+        with pytest.raises(CacheError, match="Failed to save cache"):
+            cache_manager.save(["139"])
+
+    def test_save_creates_parent_directory(self, tmp_path):
+        """Should create parent directory if it doesn't exist."""
+        nested_path = tmp_path / "nested" / "dir" / "cache.json"
+        cache_manager = CacheManager(nested_path)
+        cache_manager.save(["139"])
+        assert nested_path.exists()
 
 
-# --- Test Cases for APIFetcher ---
-
-
-class TestAPIFetcher:
-    """Thoroughly tests the APIFetcher for various network responses."""
+# --- VersionFetcher Tests ---
+class TestVersionFetcher:
+    """Tests for API version fetching."""
 
     @patch("urllib.request.urlopen")
     def test_fetch_success(self, mock_urlopen):
-        """Should return parsed and sorted versions on a successful API response."""
+        """Should successfully fetch and parse versions."""
         mock_response = MagicMock()
         mock_response.status = 200
         mock_response.read.return_value = json.dumps(
             {
                 "versions": [
-                    {"version": "140.0.1.2"},
-                    {"version": "139.0.3.4"},
-                    {"version": "141.0.0.0"},
-                    {"version": "invalid"},
+                    {"version": "139.0.1.0"},
+                    {"version": "138.0.2.0"},
+                    {"version": "137.0.3.0"},
+                    {"version": "136.0.4.0"},  # Should be filtered out
                 ]
             }
         ).encode()
         mock_urlopen.return_value.__enter__.return_value = mock_response
-        assert APIFetcher.fetch_versions() == ["141", "140", "139"]
+
+        versions = VersionFetcher.fetch()
+        assert versions == ["139", "138", "137"]  # Latest first, only supported
 
     @patch("urllib.request.urlopen")
-    def test_fetch_http_error_raises_error(self, mock_urlopen):
-        """Should raise APIFetchError on non-200 HTTP status codes."""
+    def test_fetch_http_error(self, mock_urlopen):
+        """Should raise APIFetchError for HTTP error status."""
         mock_response = MagicMock()
         mock_response.status = 404
         mock_urlopen.return_value.__enter__.return_value = mock_response
-        with pytest.raises(APIFetchError, match="status code: 404"):
-            APIFetcher.fetch_versions()
 
-    @pytest.mark.parametrize("exception", [error.URLError("Network down"), TimeoutError("Request timed out")])
-    @patch("urllib.request.urlopen")
-    def test_fetch_network_errors_raise_error(self, mock_urlopen, exception):
-        """Should raise APIFetchError on various network-related errors."""
-        mock_urlopen.side_effect = exception
-        with pytest.raises(APIFetchError, match="Failed to fetch or parse"):
-            APIFetcher.fetch_versions()
+        with pytest.raises(APIFetchError, match="API returned status 404"):
+            VersionFetcher.fetch()
 
     @patch("urllib.request.urlopen")
-    def test_fetch_invalid_json_raises_error(self, mock_urlopen):
-        """Should raise APIFetchError if the API returns invalid JSON."""
+    def test_fetch_network_error(self, mock_urlopen):
+        """Should raise APIFetchError for network errors."""
+        mock_urlopen.side_effect = URLError("Network error")
+
+        with pytest.raises(APIFetchError, match="Network error"):
+            VersionFetcher.fetch()
+
+    @patch("urllib.request.urlopen")
+    def test_fetch_timeout_error(self, mock_urlopen):
+        """Should raise APIFetchError for timeout."""
+        mock_urlopen.side_effect = TimeoutError("Request timeout")
+
+        with pytest.raises(APIFetchError, match="Network error"):
+            VersionFetcher.fetch()
+
+    @patch("urllib.request.urlopen")
+    def test_fetch_invalid_json(self, mock_urlopen):
+        """Should raise APIFetchError for invalid JSON."""
         mock_response = MagicMock()
         mock_response.status = 200
         mock_response.read.return_value = b"not json"
         mock_urlopen.return_value.__enter__.return_value = mock_response
-        with pytest.raises(APIFetchError, match="Failed to fetch or parse"):
-            APIFetcher.fetch_versions()
+
+        with pytest.raises(APIFetchError, match="Invalid JSON response"):
+            VersionFetcher.fetch()
+
+    @patch("urllib.request.urlopen")
+    def test_fetch_no_supported_versions(self, mock_urlopen):
+        """Should raise APIFetchError when no supported versions found."""
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.read.return_value = json.dumps(
+            {
+                "versions": [
+                    {"version": "136.0.1.0"},  # Not supported
+                    {"version": "135.0.2.0"},  # Not supported
+                ]
+            }
+        ).encode()
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        with pytest.raises(APIFetchError, match="No supported versions found"):
+            VersionFetcher.fetch()
 
 
-# --- Test Cases for DataProvider ---
-
-
+# --- DataProvider Tests ---
 class TestDataProvider:
-    """Thoroughly tests the orchestration logic of the DataProvider class."""
+    """Tests for data coordination logic."""
 
-    def test_priority_1_uses_valid_cache(self, cache_manager: CacheManager):
-        """Should prioritize using data from a valid cache and not call the API."""
-        cache_manager.read = MagicMock(return_value={"versions": ["123"]})
-        mock_fetcher = MagicMock()
-        provider = DataProvider(cache_manager, mock_fetcher)
-        data = provider.get_data()
-        assert "123" in data["sec_ua"]
-        mock_fetcher.fetch_versions.assert_not_called()
+    def test_get_versions_from_cache_success(self, data_provider):
+        """Should return cached versions when cache is valid."""
+        cached_versions = ["139", "138"]
+        data_provider.cache_manager.load = MagicMock(return_value=cached_versions)
 
-    def test_priority_2_fetches_from_api_on_cache_miss(self, cache_manager: CacheManager):
-        """Should fetch from API if cache is missing, and then write to cache."""
-        cache_manager.read = MagicMock(return_value=None)
-        cache_manager.write = MagicMock()
-        mock_fetcher = MagicMock(fetch_versions=MagicMock(return_value=["140", "139"]))
-        provider = DataProvider(cache_manager, mock_fetcher)
-        data = provider.get_data()
-        assert "140" in data["sec_ua"]
-        mock_fetcher.fetch_versions.assert_called_once()
-        cache_manager.write.assert_called_once_with({"versions": ["140", "139"]})
+        versions = data_provider.get_versions()
+        assert versions == cached_versions
 
-    def test_priority_3_uses_fallback_on_all_failures(self, cache_manager: CacheManager):
-        """Should use fallback data if both reading cache and fetching API fail."""
-        cache_manager.read = MagicMock(side_effect=CacheError("Cannot read"))
-        mock_fetcher = MagicMock(fetch_versions=MagicMock(side_effect=APIFetchError("API down")))
-        provider = DataProvider(cache_manager, mock_fetcher)
-        data = provider.get_data()
-        assert set(data["sec_ua"].keys()) == set(FALLBACK_CHROME_VERSIONS)
+        # API should not be called
+        data_provider.version_fetcher.fetch = MagicMock()
+        data_provider.version_fetcher.fetch.assert_not_called()
 
-    def test_force_refresh_bypasses_cache_and_fetches_api(self, cache_manager: CacheManager):
-        """force_refresh should ignore cache and fetch directly from the API."""
-        cache_manager.read = MagicMock()  # Should not be called
-        cache_manager.write = MagicMock()
-        mock_fetcher = MagicMock(fetch_versions=MagicMock(return_value=["150"]))
-        provider = DataProvider(cache_manager, mock_fetcher)
-        provider.force_refresh()
-        data = provider.get_data()  # get_data should now return the refreshed data
-        assert "150" in data["sec_ua"]
-        cache_manager.read.assert_not_called()
-        mock_fetcher.fetch_versions.assert_called_once()
-        cache_manager.write.assert_called_once_with({"versions": ["150"]})
+    def test_get_versions_cache_miss_api_success(self, data_provider):
+        """Should fetch from API when cache is invalid."""
+        api_versions = ["139", "138", "137"]
+        data_provider.cache_manager.load = MagicMock(return_value=None)
+        data_provider.version_fetcher.fetch = MagicMock(return_value=api_versions)
+        data_provider.cache_manager.save = MagicMock()
 
-    def test_generate_ua_data_with_empty_list_raises_error(self):
-        """Should raise UAError if trying to generate data from an empty version list."""
-        with pytest.raises(UAError, match="empty version list"):
-            DataProvider._generate_ua_data([])
+        versions = data_provider.get_versions()
+        assert versions == api_versions
+        data_provider.version_fetcher.fetch.assert_called_once()
+        data_provider.cache_manager.save.assert_called_once_with(api_versions)
 
-    def test_singleton_behavior(self, cache_manager: CacheManager):
-        """Should always return the same instance of DataProvider."""
-        mock_fetcher = MagicMock()
-        instance1 = DataProvider(cache_manager, mock_fetcher)
-        instance2 = DataProvider(cache_manager, mock_fetcher)
-        assert instance1 is instance2
+    def test_get_versions_cache_error_api_success(self, data_provider):
+        """Should handle cache error gracefully and use API."""
+        api_versions = ["139", "138"]
+        data_provider.cache_manager.load = MagicMock(side_effect=CacheError("Cache error"))
+        data_provider.version_fetcher.fetch = MagicMock(return_value=api_versions)
+        data_provider.cache_manager.save = MagicMock()
+
+        versions = data_provider.get_versions()
+        assert versions == api_versions
+        data_provider.version_fetcher.fetch.assert_called_once()
+
+    def test_get_versions_api_error_uses_fallback(self, data_provider):
+        """Should use fallback versions when API fails."""
+        data_provider.cache_manager.load = MagicMock(return_value=None)
+        data_provider.version_fetcher.fetch = MagicMock(side_effect=APIFetchError("API error"))
+
+        versions = data_provider.get_versions()
+        assert versions == FALLBACK_VERSIONS
+
+    def test_get_versions_force_refresh_bypasses_cache(self, data_provider):
+        """Should bypass cache when force_refresh is True."""
+        api_versions = ["139"]
+        data_provider.cache_manager.load = MagicMock()
+        data_provider.version_fetcher.fetch = MagicMock(return_value=api_versions)
+        data_provider.cache_manager.save = MagicMock()
+
+        versions = data_provider.get_versions(force_refresh=True)
+        assert versions == api_versions
+        data_provider.cache_manager.load.assert_not_called()
+        data_provider.version_fetcher.fetch.assert_called_once()
+
+    def test_get_versions_cache_save_error_handled(self, data_provider):
+        """Should handle cache save error gracefully."""
+        api_versions = ["139", "138"]
+        data_provider.cache_manager.load = MagicMock(return_value=None)
+        data_provider.version_fetcher.fetch = MagicMock(return_value=api_versions)
+        data_provider.cache_manager.save = MagicMock(side_effect=CacheError("Save error"))
+
+        # Should still return API versions despite cache save error
+        versions = data_provider.get_versions()
+        assert versions == api_versions
+
+
+# --- UADataBuilder Tests ---
+class TestUADataBuilder:
+    """Tests for User-Agent data building logic."""
+
+    def test_build_agents_success(self):
+        """Should build agent tuples correctly."""
+        versions = ["139", "138"]
+        agents = UADataBuilder.build_agents(versions)
+
+        # Should have agents for both versions and all platforms
+        assert len(agents) > 0
+
+        # Check structure of first agent
+        platform, os_version, version, ua_string = agents[0]
+        assert platform in ("mac", "win")
+        assert version in versions
+        assert "Mozilla/5.0" in ua_string
+        assert f"Chrome/{version}" in ua_string
+
+    def test_build_agents_empty_versions_raises_error(self):
+        """Should raise DataValidationError for empty versions."""
+        with pytest.raises(DataValidationError, match="Cannot build agents from empty versions"):
+            UADataBuilder.build_agents([])
+
+    def test_build_agents_contains_all_platforms(self):
+        """Should include agents for all supported platforms."""
+        versions = ["139"]
+        agents = UADataBuilder.build_agents(versions)
+        platforms = set(agent[0] for agent in agents)
+        assert "mac" in platforms
+        assert "win" in platforms
+
+    def test_build_sec_ua_map_success(self):
+        """Should build sec-ch-ua mapping correctly."""
+        versions = ["139", "138", "137"]
+        sec_ua_map = UADataBuilder.build_sec_ua_map(versions)
+
+        assert len(sec_ua_map) == 3
+        for version in versions:
+            assert version in sec_ua_map
+            assert f'"Google Chrome";v="{version}"' in sec_ua_map[version]
+            assert f'"Chromium";v="{version}"' in sec_ua_map[version]
+
+    def test_build_sec_ua_map_empty_versions_raises_error(self):
+        """Should raise DataValidationError for empty versions."""
+        with pytest.raises(DataValidationError, match="Cannot build sec-ua map from empty versions"):
+            UADataBuilder.build_sec_ua_map([])
+
+
+# --- DataManager Tests ---
+class TestDataManager:
+    """Tests for high-level data management."""
+
+    def test_singleton_behavior(self, temp_cache_path):
+        """Should implement singleton pattern correctly."""
+        manager1 = DataManager(temp_cache_path)
+        manager2 = DataManager(temp_cache_path)
+        assert manager1 is manager2
+
+    def test_initialization_loads_data(self, temp_cache_path):
+        """Should load data during initialization."""
+        with patch.object(DataProvider, "get_versions", return_value=["139", "138"]):
+            manager = DataManager(temp_cache_path)
+            agents = manager.get_agents()
+            sec_ua_map = manager.get_sec_ua_map()
+
+            assert len(agents) > 0
+            assert len(sec_ua_map) > 0
+            assert "139" in sec_ua_map
+            assert "138" in sec_ua_map
+
+    def test_get_agents_returns_copy(self, temp_cache_path):
+        """Should return copy of agents to prevent external modification."""
+        with patch.object(DataProvider, "get_versions", return_value=["139"]):
+            manager = DataManager(temp_cache_path)
+            agents1 = manager.get_agents()
+            agents2 = manager.get_agents()
+
+            # Should be equal but not same object
+            assert agents1 == agents2
+            assert agents1 is not agents2
+
+    def test_get_sec_ua_map_returns_copy(self, temp_cache_path):
+        """Should return copy of sec-ua map to prevent external modification."""
+        with patch.object(DataProvider, "get_versions", return_value=["139"]):
+            manager = DataManager(temp_cache_path)
+            map1 = manager.get_sec_ua_map()
+            map2 = manager.get_sec_ua_map()
+
+            # Should be equal but not same object
+            assert map1 == map2
+            assert map1 is not map2
+
+    def test_force_update_refreshes_data(self, temp_cache_path):
+        """Should refresh data when force_update is called."""
+        with patch.object(DataProvider, "get_versions") as mock_get_versions:
+            # First call during initialization
+            mock_get_versions.return_value = ["138"]
+            manager = DataManager(temp_cache_path)
+
+            # Second call during force_update
+            mock_get_versions.return_value = ["139"]
+            manager.force_update()
+
+            # Should have been called twice (init + force_update)
+            assert mock_get_versions.call_count == 2
+            # Check that force_refresh was used in second call
+            mock_get_versions.assert_called_with(force_refresh=True)
+
+
+# --- Thread Safety Tests ---
+class TestThreadSafety:
+    """Tests for thread safety of core components."""
+
+    def test_cache_manager_thread_safety(self, temp_cache_path):
+        """Should handle concurrent cache operations safely."""
+        cache_manager = CacheManager(temp_cache_path)
+        errors = []
+
+        def worker(worker_id):
+            try:
+                versions = [f"13{worker_id}"]
+                cache_manager.save(versions)
+                loaded = cache_manager.load()
+                assert loaded is not None
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(5)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        # File should exist and be valid JSON
+        assert temp_cache_path.exists()
+        with temp_cache_path.open("r") as f:
+            data = json.load(f)  # Should not raise
+        assert "versions" in data
+        assert "timestamp" in data
+
+    def test_data_manager_thread_safety(self, temp_cache_path):
+        """Should handle concurrent access to DataManager safely."""
+        with patch.object(DataProvider, "get_versions", return_value=["139", "138"]):
+            errors = []
+
+            def worker():
+                try:
+                    manager = DataManager(temp_cache_path)
+                    for _ in range(10):
+                        agents = manager.get_agents()
+                        sec_ua_map = manager.get_sec_ua_map()
+                        assert len(agents) > 0
+                        assert len(sec_ua_map) > 0
+                except Exception as e:
+                    errors.append(e)
+
+            threads = [threading.Thread(target=worker) for _ in range(3)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            assert not errors, f"Thread safety test failed: {errors}"

@@ -1,134 +1,163 @@
 """
-This is the main user-facing module of MacWinUA.
-It provides the `MacWinUA` class for generating headers and a singleton `ua` instance.
+Main user interface for MacWinUA library.
+Provides HeaderGenerator class and singleton instance for easy usage.
 """
 
-import functools
 import random
-import threading
-from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
-from .constants import DEFAULT_CHROME_VERSION, DEFAULT_HEADERS, PlatformType
-from .core import APIFetcher, CacheManager, DataProvider
+from .constants import DEFAULT_HEADERS, PlatformType, AgentTuple
+from .core import DataManager
 from .exceptions import UAError
 
 
-def memoize(func):
-    """A simple, thread-safe memoization decorator."""
-    cache = {}
-    lock = threading.RLock()
-
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        key = str(args) + str(sorted(kwargs.items()))
-        with lock:
-            if key not in cache:
-                cache[key] = func(*args, **kwargs)
-            return cache[key]
-
-    # Add a cache_clear method to the decorated function
-    wrapper.cache_clear = lambda: cache.clear()
-    return wrapper
-
-
 class HeaderGenerator:
-    """Generates Chrome user-agent strings and headers based on provided data."""
+    """
+    Generates Chrome browser headers with realistic User-Agent strings.
+    Main user-facing class that provides simple API for header generation.
+    """
 
-    def __init__(self, data_provider: DataProvider):
-        """Initializes with a data provider (Dependency Injection)."""
-        self._data_provider = data_provider
-        self._reload_data()
+    def __init__(self, data_manager: Optional[DataManager] = None):
+        """Initialize with data manager (dependency injection for testing)."""
+        self._data_manager = data_manager or DataManager()
 
-    def _reload_data(self):
-        """Loads or reloads the data from the data provider."""
-        ua_data = self._data_provider.get_data()
-        self._agents = ua_data.get("agents", [])
-        self._sec_ua = ua_data.get("sec_ua", {})
-        if not self._agents or not self._sec_ua:
-            raise UAError("Cannot initialize HeaderGenerator with empty data.")
+    def _get_matching_agents(
+        self,
+        platform: Optional[PlatformType] = None,
+        chrome_version: Optional[str] = None,
+    ) -> List[AgentTuple]:
+        """Get agents matching the specified criteria."""
+        agents = self._data_manager.get_agents()
+
+        # Filter by platform
+        if platform is not None:
+            if platform not in ("mac", "win"):
+                raise UAError("Platform must be 'mac' or 'win'")
+            agents = [agent for agent in agents if agent[0] == platform]
+
+        # Filter by Chrome version
+        if chrome_version is not None:
+            sec_ua_map = self._data_manager.get_sec_ua_map()
+            if chrome_version not in sec_ua_map:
+                available = ", ".join(sorted(sec_ua_map.keys(), key=int, reverse=True))
+                raise UAError(f"Chrome version must be one of: {available}")
+            agents = [agent for agent in agents if agent[2] == chrome_version]
+
+        if not agents:
+            raise UAError("No matching user-agent found for specified criteria")
+
+        return agents
 
     @property
     def chrome(self) -> str:
-        return random.choice(self._agents)[3]
+        """Get a random Chrome User-Agent string."""
+        agents = self._data_manager.get_agents()
+        if not agents:
+            raise UAError("No user agents available")
+        return random.choice(agents)[3]
 
     @property
     def mac(self) -> str:
-        return random.choice([a for a in self._agents if a[0] == "mac"])[3]
+        """Get a random macOS Chrome User-Agent string."""
+        agents = self._get_matching_agents(platform="mac")
+        return random.choice(agents)[3]
 
     @property
     def windows(self) -> str:
-        return random.choice([a for a in self._agents if a[0] == "win"])[3]
+        """Get a random Windows Chrome User-Agent string."""
+        agents = self._get_matching_agents(platform="win")
+        return random.choice(agents)[3]
 
     @property
     def latest(self) -> str:
-        latest_ver = max(self._sec_ua.keys(), key=int)
-        return random.choice([a for a in self._agents if a[2] == latest_ver])[3]
+        """Get User-Agent from the latest Chrome version available."""
+        sec_ua_map = self._data_manager.get_sec_ua_map()
+        if not sec_ua_map:
+            return self.chrome
+
+        latest_version = max(sec_ua_map.keys(), key=int)
+        agents = self._get_matching_agents(chrome_version=latest_version)
+        return random.choice(agents)[3]
 
     @property
     def random(self) -> str:
+        """Alias for chrome property - get a random Chrome UA string."""
         return self.chrome
 
-    @memoize
     def get_headers(
         self,
         platform: Optional[PlatformType] = None,
         chrome_version: Optional[str] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, str]:
-        """Generates a complete dictionary of Chrome browser headers."""
-        candidates = self._agents
-        if platform:
-            if platform not in ("mac", "win"):
-                raise UAError("Platform must be 'mac' or 'win'.")
-            candidates = [a for a in candidates if a[0] == platform]
-        if chrome_version:
-            if chrome_version not in self._sec_ua:
-                available = ", ".join(sorted(self._sec_ua.keys(), key=int, reverse=True))
-                raise UAError(f"Chrome version must be one of: {available}.")
-            candidates = [a for a in candidates if a[2] == chrome_version]
-        if not candidates:
-            raise UAError("No matching user-agent found for the specified criteria.")
+        """
+        Generate complete HTTP headers for Chrome browser.
 
-        p_label, _, ver, ua_str = random.choice(candidates)
+        Args:
+            platform: Target platform ('mac' or 'win')
+            chrome_version: Specific Chrome version to use
+            extra_headers: Additional headers to include
+
+        Returns:
+            Complete dictionary of HTTP headers
+
+        Raises:
+            UAError: If parameters are invalid or no matching agents found
+        """
+        # Get matching agents
+        matching_agents = self._get_matching_agents(platform, chrome_version)
+
+        # Select random agent from matches
+        platform_key, os_version, version, ua_string = random.choice(matching_agents)
+
+        # Get sec-ch-ua value
+        sec_ua_map = self._data_manager.get_sec_ua_map()
+        sec_ua_value = sec_ua_map[version]
+
+        # Build platform header value
+        platform_name = "macOS" if platform_key == "mac" else "Windows"
+
+        # Create headers dictionary
         headers = {
-            "User-Agent": ua_str,
-            "sec-ch-ua": self._sec_ua.get(ver, self._sec_ua[DEFAULT_CHROME_VERSION]),
-            "sec-ch-ua-platform": f'"{"macOS" if p_label == "mac" else "Windows"}"',
+            "User-Agent": ua_string,
+            "sec-ch-ua": sec_ua_value,
+            "sec-ch-ua-platform": f'"{platform_name}"',
         }
+
+        # Add default headers
         headers.update(DEFAULT_HEADERS)
+
+        # Add extra headers if provided
+        if extra_headers:
+            headers.update(extra_headers)
+
         return headers
 
+    def force_update(self) -> None:
+        """Force refresh Chrome version data from API, bypassing cache."""
+        self._data_manager.force_update()
 
-# --- Singleton Instantiation & Public Functions ---
 
-_cache_path = Path(__file__).parent / "macwinua_cache.json"
-_data_provider_singleton = DataProvider(CacheManager(_cache_path), APIFetcher())
-ua = HeaderGenerator(data_provider=_data_provider_singleton)
+# Singleton instance for convenient access
+ua = HeaderGenerator()
 
 
 def get_chrome_headers(**kwargs) -> Dict[str, str]:
-    """A convenience function to get Chrome headers."""
+    """
+    Convenience function to get Chrome headers using singleton instance.
+
+    Args:
+        **kwargs: Arguments passed to HeaderGenerator.get_headers()
+
+    Returns:
+        Dictionary of HTTP headers
+    """
     return ua.get_headers(**kwargs)
 
 
-# In macwinua/ua.py
-
-
-def force_update():
+def force_update() -> None:
     """
-    Forces a refresh of the UA data from the remote API, bypassing the cache.
-    The new data will be used for all subsequent calls.
+    Force refresh Chrome version data from API for singleton instance.
+    This will update data for all subsequent calls to the ua singleton.
     """
-    # This call refreshes the data inside the singleton provider instance.
-    new_data = _data_provider_singleton.force_refresh()
-
-    # CRITICAL FIX: Directly update the internal state of the `ua` singleton
-    # to reflect the newly fetched data. This ensures atomicity and testability.
-    ua._agents = new_data.get("agents", [])
-    ua._sec_ua = new_data.get("sec_ua", {})
-    if not ua._agents or not ua._sec_ua:
-        raise UAError("Failed to reload with valid data after force update.")
-
-    # Clear the memoization cache on the header generation method.
-    if hasattr(ua.get_headers, "cache_clear"):
-        ua.get_headers.cache_clear()
+    ua.force_update()
