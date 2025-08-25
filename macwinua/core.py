@@ -4,23 +4,32 @@ Handles caching, API fetching, and data management following SRP.
 """
 
 import json
+import os
 import time
 import threading
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Protocol
 from urllib import request, error
 
 from .constants import (
-    API_URL,
+    API_URL_TEMPLATE,
     CACHE_VALIDITY_DAYS,
     API_TIMEOUT_SECONDS,
-    SUPPORTED_VERSIONS,
     FALLBACK_VERSIONS,
     PLATFORMS,
     AgentTuple,
     SecUAMapping,
 )
 from .exceptions import CacheError, APIFetchError, DataValidationError
+
+
+def get_default_cache_path() -> Path:
+    """
+    Gets the default, user-specific cache path using only the standard library.
+    Creates a hidden directory in the user's home folder.
+    """
+    home_dir = os.path.expanduser("~")
+    return Path(home_dir) / ".macwinua" / "macwinua_cache.json"
 
 
 class CacheManager:
@@ -37,15 +46,12 @@ class CacheManager:
         """Check if cache file exists and is within validity period."""
         if not self.cache_path.exists():
             return False
-
         try:
             with self.cache_path.open("r", encoding="utf-8") as f:
                 data = json.load(f)
-
             timestamp = data.get("timestamp", 0)
             age_days = (time.time() - timestamp) / (24 * 60 * 60)
             return age_days < CACHE_VALIDITY_DAYS
-
         except (json.JSONDecodeError, IOError, KeyError):
             return False
 
@@ -53,17 +59,13 @@ class CacheManager:
         """Load Chrome versions from cache if valid."""
         if not self.is_valid():
             return None
-
         try:
             with self.cache_path.open("r", encoding="utf-8") as f:
                 data = json.load(f)
-
             versions = data.get("versions", [])
             if not versions or not isinstance(versions, list):
                 return None
-
             return versions
-
         except (json.JSONDecodeError, IOError, OSError) as e:
             raise CacheError(f"Failed to load cache: {e}") from e
 
@@ -71,33 +73,36 @@ class CacheManager:
         """Save Chrome versions to cache with timestamp."""
         if not versions:
             raise DataValidationError("Cannot save empty versions list to cache")
-
         with self._lock:
             try:
                 # Ensure parent directory exists
                 self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-
                 cache_data = {"versions": versions, "timestamp": time.time()}
-
                 with self.cache_path.open("w", encoding="utf-8") as f:
                     json.dump(cache_data, f, indent=2)
-
             except (IOError, OSError) as e:
                 raise CacheError(f"Failed to save cache: {e}") from e
 
 
-class VersionFetcher:
+class VersionSource(Protocol):
+    """Protocol for classes that can fetch Chrome versions."""
+
+    def fetch(self) -> List[str]:
+        ...
+
+
+class ApiVersionFetcher:
     """
     Fetches latest Chrome versions from Google API.
     Responsibility: API communication and response parsing
     """
 
-    @staticmethod
-    def fetch() -> List[str]:
+    def fetch(self) -> List[str]:
         """Fetch latest Chrome versions from Google API."""
+        api_url = API_URL_TEMPLATE.format(platform="win")
         try:
-            req = request.Request(API_URL)
-            req.add_header("User-Agent", "MacWinUA/1.0")
+            req = request.Request(api_url)
+            req.add_header("User-Agent", "MacWinUA/2.0")
 
             with request.urlopen(req, timeout=API_TIMEOUT_SECONDS) as response:
                 if response.status != 200:
@@ -105,25 +110,21 @@ class VersionFetcher:
 
                 data = json.loads(response.read().decode("utf-8"))
 
-                # Extract and filter versions
                 versions = set()
                 for item in data.get("versions", []):
-                    version = item.get("version", "").split(".")[0]
-                    if version in SUPPORTED_VERSIONS:
-                        versions.add(version)
+                    version_major = item.get("version", "").split(".")[0]
+                    if version_major.isdigit():
+                        versions.add(version_major)
 
                 if not versions:
-                    raise APIFetchError("No supported versions found in API response")
+                    raise APIFetchError("No valid versions found in API response")
 
-                # Return sorted versions (latest first)
                 return sorted(list(versions), key=int, reverse=True)
 
         except (error.URLError, error.HTTPError, TimeoutError) as e:
             raise APIFetchError(f"Network error: {e}") from e
         except json.JSONDecodeError as e:
             raise APIFetchError(f"Invalid JSON response: {e}") from e
-        except Exception as e:
-            raise APIFetchError(f"Unexpected API error: {e}") from e
 
 
 class DataProvider:
@@ -132,36 +133,28 @@ class DataProvider:
     Responsibility: Data coordination and fallback logic
     """
 
-    def __init__(self, cache_manager: CacheManager, version_fetcher: VersionFetcher):
+    def __init__(self, cache_manager: CacheManager, version_fetcher: VersionSource):
         self.cache_manager = cache_manager
         self.version_fetcher = version_fetcher
-        self._lock = threading.Lock()
 
     def get_versions(self, force_refresh: bool = False) -> List[str]:
         """Get Chrome versions with cache-first strategy."""
         if not force_refresh:
-            # Try cache first
             try:
                 cached_versions = self.cache_manager.load()
                 if cached_versions:
                     return cached_versions
             except CacheError:
-                # Cache error, continue to API
-                pass
+                pass  # Proceed to fetch from API
 
-        # Try API
         try:
             api_versions = self.version_fetcher.fetch()
-            # Save to cache for next time
             try:
                 self.cache_manager.save(api_versions)
             except CacheError:
-                # Cache save failed, but we have data from API
-                pass
+                pass  # Non-critical error, proceed with API data
             return api_versions
-
         except APIFetchError:
-            # API failed, use fallback
             return FALLBACK_VERSIONS.copy()
 
 
@@ -176,7 +169,6 @@ class UADataBuilder:
         """Build list of agent tuples from Chrome versions."""
         if not versions:
             raise DataValidationError("Cannot build agents from empty versions list")
-
         agents = []
         for version in versions:
             for platform, platform_configs in PLATFORMS.items():
@@ -187,7 +179,6 @@ class UADataBuilder:
                         f"Chrome/{version}.0.0.0 Safari/537.36"
                     )
                     agents.append((platform, os_version, version, ua_string))
-
         return agents
 
     @staticmethod
@@ -195,57 +186,44 @@ class UADataBuilder:
         """Build sec-ch-ua header mapping from Chrome versions."""
         if not versions:
             raise DataValidationError("Cannot build sec-ua map from empty versions list")
-
         sec_ua_map = {}
         for version in versions:
-            sec_ua_map[version] = f'"Google Chrome";v="{version}", ' f'"Not/A)Brand";v="{version}", ' f'"Chromium";v="{version}"'
-
+            sec_ua_map[version] = f'"Google Chrome";v="{version}", "Not/A)Brand";v="99", "Chromium";v="{version}"'
         return sec_ua_map
 
 
 class DataManager:
     """
-    High-level data management with singleton pattern.
+    High-level data management. No longer a singleton.
     Responsibility: Coordinating all data operations and providing unified interface
     """
 
-    _instance = None
     _lock = threading.Lock()
-    _initialized = False
 
-    def __new__(cls, cache_path: Optional[Path] = None):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-        return cls._instance
+    def __init__(
+        self,
+        cache_path: Optional[Path] = None,
+        version_fetcher: Optional[VersionSource] = None,
+    ):
+        self._cache_path = cache_path or get_default_cache_path()
+        self._version_fetcher = version_fetcher or ApiVersionFetcher()
 
-    def __init__(self, cache_path: Optional[Path] = None):
-        if self._initialized:
-            return
+        self.cache_manager = CacheManager(self._cache_path)
+        self.data_provider = DataProvider(self.cache_manager, self._version_fetcher)
+        self.ua_builder = UADataBuilder()
 
+        self._agents: List[AgentTuple] = []
+        self._sec_ua_map: SecUAMapping = {}
+
+        # Initial data load on instantiation
+        self._load_data(force_refresh=False)
+
+    def _load_data(self, force_refresh: bool):
+        """Internal method to load or reload all data from the provider."""
         with self._lock:
-            if self._initialized:
-                return
-
-            # Initialize components
-            if cache_path is None:
-                cache_path = Path(__file__).parent / "macwinua_cache.json"
-
-            self.cache_manager = CacheManager(cache_path)
-            self.version_fetcher = VersionFetcher()
-            self.data_provider = DataProvider(self.cache_manager, self.version_fetcher)
-            self.ua_builder = UADataBuilder()
-
-            # Load initial data
-            self._load_data()
-            self._initialized = True
-
-    def _load_data(self):
-        """Load and build all UA data."""
-        versions = self.data_provider.get_versions()
-        self._agents = self.ua_builder.build_agents(versions)
-        self._sec_ua_map = self.ua_builder.build_sec_ua_map(versions)
+            versions = self.data_provider.get_versions(force_refresh=force_refresh)
+            self._agents = self.ua_builder.build_agents(versions)
+            self._sec_ua_map = self.ua_builder.build_sec_ua_map(versions)
 
     def get_agents(self) -> List[AgentTuple]:
         """Get all agent tuples."""
@@ -256,8 +234,5 @@ class DataManager:
         return self._sec_ua_map.copy()
 
     def force_update(self) -> None:
-        """Force refresh data from API."""
-        with self._lock:
-            versions = self.data_provider.get_versions(force_refresh=True)
-            self._agents = self.ua_builder.build_agents(versions)
-            self._sec_ua_map = self.ua_builder.build_sec_ua_map(versions)
+        """Force refresh data from API, bypassing the cache."""
+        self._load_data(force_refresh=True)

@@ -6,13 +6,12 @@ Contains all configuration values, API endpoints, and type definitions.
 from typing import Dict, List, Literal, Tuple
 
 # API Configuration
-API_URL = "https://versionhistory.googleapis.com/v1/chrome/platforms/win/channels/stable/versions"
+API_URL_TEMPLATE = "https://versionhistory.googleapis.com/v1/chrome/platforms/{platform}/channels/stable/versions"
 CACHE_VALIDITY_DAYS = 7
 API_TIMEOUT_SECONDS = 10
 
-# Supported Chrome versions (137, 138, 139 only as requested)
-SUPPORTED_VERSIONS: List[str] = ["137", "138", "139"]
-FALLBACK_VERSIONS: List[str] = ["139", "138", "137"]  # Latest first as fallback
+# FALLBACK_VERSIONS are used if the API call fails.
+FALLBACK_VERSIONS: List[str] = ["139", "138", "137"]
 DEFAULT_VERSION = "139"
 
 # Platform definitions
@@ -41,8 +40,4 @@ DEFAULT_HEADERS: Dict[str, str] = {
 PlatformType = Literal["mac", "win"]
 # (platform, os_version, chrome_version, ua_string)
 AgentTuple = Tuple[str, str, str, str]
-VersionData = Dict[str, List[str]]  # {"versions": ["139", "138", "137"]}
-SecUAMapping = Dict[str, str]  # {"139": "sec-ch-ua-value", ...}
-
-# Cache file name
-CACHE_FILENAME = "macwinua_cache.json"
+SecUAMapping = Dict[str, str]

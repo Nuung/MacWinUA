@@ -1,6 +1,6 @@
 """
 Main user interface for MacWinUA library.
-Provides HeaderGenerator class and singleton instance for easy usage.
+Provides HeaderGenerator class and a default instance for easy usage.
 """
 
 import random
@@ -104,30 +104,21 @@ class HeaderGenerator:
         Raises:
             UAError: If parameters are invalid or no matching agents found
         """
-        # Get matching agents
         matching_agents = self._get_matching_agents(platform, chrome_version)
+        platform_key, _, version, ua_string = random.choice(matching_agents)
 
-        # Select random agent from matches
-        platform_key, os_version, version, ua_string = random.choice(matching_agents)
-
-        # Get sec-ch-ua value
         sec_ua_map = self._data_manager.get_sec_ua_map()
-        sec_ua_value = sec_ua_map[version]
+        sec_ua_value = sec_ua_map.get(version, "")
 
-        # Build platform header value
         platform_name = "macOS" if platform_key == "mac" else "Windows"
 
-        # Create headers dictionary
         headers = {
             "User-Agent": ua_string,
             "sec-ch-ua": sec_ua_value,
             "sec-ch-ua-platform": f'"{platform_name}"',
         }
 
-        # Add default headers
         headers.update(DEFAULT_HEADERS)
-
-        # Add extra headers if provided
         if extra_headers:
             headers.update(extra_headers)
 
@@ -138,26 +129,19 @@ class HeaderGenerator:
         self._data_manager.force_update()
 
 
-# Singleton instance for convenient access
+# Default instance for convenient, backward-compatible access
 ua = HeaderGenerator()
 
 
 def get_chrome_headers(**kwargs) -> Dict[str, str]:
     """
-    Convenience function to get Chrome headers using singleton instance.
-
-    Args:
-        **kwargs: Arguments passed to HeaderGenerator.get_headers()
-
-    Returns:
-        Dictionary of HTTP headers
+    Convenience function to get Chrome headers using default instance.
     """
     return ua.get_headers(**kwargs)
 
 
 def force_update() -> None:
     """
-    Force refresh Chrome version data from API for singleton instance.
-    This will update data for all subsequent calls to the ua singleton.
+    Force refresh Chrome version data from API for the default instance.
     """
     ua.force_update()
