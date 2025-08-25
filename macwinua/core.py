@@ -4,23 +4,27 @@ Handles caching, API fetching, and data management following SRP.
 """
 
 import json
+import logging
 import os
-import time
 import threading
+import time
 from pathlib import Path
 from typing import List, Optional, Protocol
-from urllib import request, error
+from urllib import error, request
 
 from .constants import (
+    API_TIMEOUT_SECONDS,
     API_URL_TEMPLATE,
     CACHE_VALIDITY_DAYS,
-    API_TIMEOUT_SECONDS,
     FALLBACK_VERSIONS,
     PLATFORMS,
     AgentTuple,
     SecUAMapping,
 )
-from .exceptions import CacheError, APIFetchError, DataValidationError
+from .exceptions import APIFetchError, CacheError, DataValidationError
+
+# Initialize logger for the library
+logger = logging.getLogger(__name__)
 
 
 def get_default_cache_path() -> Path:
@@ -52,7 +56,8 @@ class CacheManager:
             timestamp = data.get("timestamp", 0)
             age_days = (time.time() - timestamp) / (24 * 60 * 60)
             return age_days < CACHE_VALIDITY_DAYS
-        except (json.JSONDecodeError, IOError, KeyError):
+        except (json.JSONDecodeError, IOError, KeyError) as e:
+            logger.warning(f"Cache validation failed: {e}")
             return False
 
     def load(self) -> Optional[List[str]]:
@@ -144,17 +149,20 @@ class DataProvider:
                 cached_versions = self.cache_manager.load()
                 if cached_versions:
                     return cached_versions
-            except CacheError:
-                pass  # Proceed to fetch from API
+            except CacheError as e:
+                # Log cache read errors but proceed to API fetch
+                logger.warning(f"Could not load from cache, fetching from API: {e}")
 
         try:
             api_versions = self.version_fetcher.fetch()
             try:
                 self.cache_manager.save(api_versions)
-            except CacheError:
-                pass  # Non-critical error, proceed with API data
+            except CacheError as e:
+                # Log cache write errors but proceed with fresh API data
+                logger.error(f"Failed to save fresh data to cache: {e}")
             return api_versions
-        except APIFetchError:
+        except APIFetchError as e:
+            logger.warning(f"API fetch failed, using fallback versions: {e}")
             return FALLBACK_VERSIONS.copy()
 
 
@@ -214,25 +222,32 @@ class DataManager:
 
         self._agents: List[AgentTuple] = []
         self._sec_ua_map: SecUAMapping = {}
+        self._is_loaded = False
 
-        # Initial data load on instantiation
-        self._load_data(force_refresh=False)
-
-    def _load_data(self, force_refresh: bool):
-        """Internal method to load or reload all data from the provider."""
+    def load_data(self, force_refresh: bool = False):
+        """
+        Public method to load or reload all data from the provider.
+        This method is idempotent unless force_refresh is True.
+        """
         with self._lock:
+            if self._is_loaded and not force_refresh:
+                return
+
             versions = self.data_provider.get_versions(force_refresh=force_refresh)
             self._agents = self.ua_builder.build_agents(versions)
             self._sec_ua_map = self.ua_builder.build_sec_ua_map(versions)
+            self._is_loaded = True
 
     def get_agents(self) -> List[AgentTuple]:
         """Get all agent tuples."""
+        self.load_data()  # Ensure data is loaded
         return self._agents.copy()
 
     def get_sec_ua_map(self) -> SecUAMapping:
         """Get sec-ch-ua mapping."""
+        self.load_data()  # Ensure data is loaded
         return self._sec_ua_map.copy()
 
     def force_update(self) -> None:
         """Force refresh data from API, bypassing the cache."""
-        self._load_data(force_refresh=True)
+        self.load_data(force_refresh=True)

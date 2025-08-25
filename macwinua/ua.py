@@ -1,12 +1,12 @@
 """
 Main user interface for MacWinUA library.
-Provides HeaderGenerator class and a default instance for easy usage.
+Provides HeaderGenerator class for easy usage.
 """
 
 import random
 from typing import Dict, List, Optional
 
-from .constants import DEFAULT_HEADERS, PlatformType, AgentTuple
+from .constants import DEFAULT_HEADERS, AgentTuple, PlatformType
 from .core import DataManager
 from .exceptions import UAError
 
@@ -18,7 +18,10 @@ class HeaderGenerator:
     """
 
     def __init__(self, data_manager: Optional[DataManager] = None):
-        """Initialize with data manager (dependency injection for testing)."""
+        """
+        Initialize with an optional DataManager.
+        If no DataManager is provided, a default instance will be created.
+        """
         self._data_manager = data_manager or DataManager()
 
     def _get_matching_agents(
@@ -127,21 +130,3 @@ class HeaderGenerator:
     def force_update(self) -> None:
         """Force refresh Chrome version data from API, bypassing cache."""
         self._data_manager.force_update()
-
-
-# Default instance for convenient, backward-compatible access
-ua = HeaderGenerator()
-
-
-def get_chrome_headers(**kwargs) -> Dict[str, str]:
-    """
-    Convenience function to get Chrome headers using default instance.
-    """
-    return ua.get_headers(**kwargs)
-
-
-def force_update() -> None:
-    """
-    Force refresh Chrome version data from API for the default instance.
-    """
-    ua.force_update()
