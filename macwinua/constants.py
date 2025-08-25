@@ -11,6 +11,7 @@ CACHE_VALIDITY_DAYS = 7
 API_TIMEOUT_SECONDS = 10
 
 # FALLBACK_VERSIONS are used if the API call fails.
+# These represent the latest 3 Chrome versions as of the last update.
 FALLBACK_VERSIONS: List[str] = ["139", "138", "137"]
 DEFAULT_VERSION = "139"
 

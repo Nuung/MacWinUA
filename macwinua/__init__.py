@@ -36,4 +36,4 @@ __all__ = [
     "DataValidationError",
 ]
 
-__version__ = "0.5.250825"
+__version__ = "0.5.250826"

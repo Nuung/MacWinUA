@@ -218,7 +218,7 @@ for i in range(5):
 
 Currently supports:
 
-- **Chrome versions**: 137, 138, 139 (automatically updated)
+- **Chrome versions**: Latest 3 versions - automatically updated
 - **Platforms**: macOS and Windows
 - **Automatic version detection**: Fetches latest versions from Google's API
 - **Smart caching**: Updates version data weekly
@@ -273,10 +273,10 @@ MacWinUA follows clean architecture principles with proper separation of concern
 
 ## How It Works
 
-1. **Version Detection**: Fetches latest Chrome versions from Google's official API
+1. **Version Detection**: Fetches latest 3 Chrome versions from Google's official API
 2. **Smart Caching**: Caches version data locally for 7 days to minimize API calls
 3. **Header Generation**: Creates realistic headers with proper sec-ch-ua values
-4. **Fallback System**: Uses hardcoded versions (139, 138, 137) if API fails
+4. **Fallback System**: Uses hardcoded latest 3 versions (139, 138, 137) if API fails
 5. **Thread Safety**: All operations are thread-safe for concurrent applications
 
 ## Cache Behavior

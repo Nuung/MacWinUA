@@ -127,7 +127,9 @@ class ApiVersionFetcher:
                 if not versions:
                     raise APIFetchError("No valid versions found in API response")
 
-                return sorted(list(versions), key=int, reverse=True)
+                # Core change: Only return the latest 3 versions
+                sorted_versions = sorted(list(versions), key=int, reverse=True)
+                return sorted_versions[:3]
 
         except (error.URLError, error.HTTPError, TimeoutError) as e:
             raise APIFetchError(f"Network error: {e}") from e
