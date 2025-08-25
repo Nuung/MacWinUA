@@ -281,7 +281,7 @@ MacWinUA follows clean architecture principles with proper separation of concern
 
 ## Cache Behavior
 
-- **Cache Location**: `macwinua/macwinua_cache.json` in package directory
+- **Cache Location**: `~/.macwinua/macwinua_cache.json` in user's home directory
 - **Cache Duration**: 7 days
 - **Auto Refresh**: Automatically refreshes expired cache on next use
 - **Force Refresh**: Use `force_update()` to bypass cache
@@ -315,7 +315,7 @@ This project uses Poetry for dependency management and packaging.
 git clone https://github.com/Nuung/MacWinUA.git
 cd MacWinUA
 
-# Setup Python 3.13 with pyenv (optional)
+# Setup Python 3.10+ with pyenv (optional)
 pyenv install 3.13.0
 pyenv local 3.13.0
 
